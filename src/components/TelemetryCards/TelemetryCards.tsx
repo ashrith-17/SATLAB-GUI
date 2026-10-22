@@ -75,8 +75,8 @@ export const TelemetrySummaryCards: React.FC = () => {
   const pitch = isConnected && latestTelemetry ? `${latestTelemetry.pitch.toFixed(1)}°` : '--';
   const yaw = isConnected && latestTelemetry ? `${latestTelemetry.yaw.toFixed(1)}°` : '--';
 
-  // Extract last valid GPS and range test state
-  const { lastValidGps, rangeTest } = useTelemetryStore();
+  // Extract last valid GPS and live distance state
+  const { lastValidGps, liveDistanceMeters } = useTelemetryStore();
 
   const isGpsStale =
     isStale ||
@@ -110,7 +110,7 @@ export const TelemetrySummaryCards: React.FC = () => {
     isGpsStale
   );
 
-  const displayDistanceMeters = rangeTest.currentDistanceMeters ?? gpsAssessment.distanceMeters;
+  const displayDistanceMeters = liveDistanceMeters ?? gpsAssessment.distanceMeters;
   const formattedDistance = OfflineGps.formatDistance(displayDistanceMeters);
 
   return (
@@ -276,10 +276,10 @@ export const TelemetrySummaryCards: React.FC = () => {
         </div>
 
         {/* 8. DISTANCE TO CANSAT */}
-        <div className="bg-sky-50/70 p-2 rounded border border-sky-200 hover:border-sky-400 transition-colors">
+        <div className="bg-sky-50/70 p-2 rounded border border-sky-200 hover:border-sky-400 transition-colors flex flex-col justify-between min-h-[78px]">
           <div className="flex items-center justify-between text-sky-700 mb-0.5">
             <span className="text-[10px] font-bold uppercase tracking-wider">
-              GPS SEPARATION
+              GROUND DISTANCE
             </span>
             <MapPin className="w-3.5 h-3.5 text-sky-600" />
           </div>
@@ -292,7 +292,7 @@ export const TelemetrySummaryCards: React.FC = () => {
             )}
           </div>
           <div className="text-[9px] text-sky-600 font-mono mt-0.5 truncate">
-            Haversine Geodesic (R = 6,371 km)
+            GS ↔ CanSat (R = 6,371 km)
           </div>
         </div>
 

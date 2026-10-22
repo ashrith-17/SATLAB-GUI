@@ -151,6 +151,84 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
+          {/* INA219/INA226 Power System & Battery Health Thresholds */}
+          <div className="bg-slate-50 p-3 rounded border border-slate-200">
+            <h4 className="font-bold text-slate-700 uppercase tracking-wider text-[11px] mb-1">
+              Electrical Power System (EPS) & Battery Thresholds
+            </h4>
+            <p className="text-[10px] text-slate-500 mb-2 leading-relaxed">
+              Configures battery chemistry profile and voltage health cutoffs for the INA219/INA226 Power Monitor.
+            </p>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-slate-600 font-semibold block mb-1">Battery Profile:</label>
+                <select
+                  value={formData.batteryProfile || '1S_LIPO'}
+                  onChange={(e) => {
+                    const prof = e.target.value as '1S_LIPO' | '2S_LIPO' | '5V_BUS' | 'CUSTOM';
+                    let low = formData.batteryLowThresholdVolts || 3.5;
+                    let crit = formData.batteryCriticalThresholdVolts || 3.3;
+                    if (prof === '1S_LIPO') {
+                      low = 3.5;
+                      crit = 3.3;
+                    } else if (prof === '2S_LIPO') {
+                      low = 7.0;
+                      crit = 6.6;
+                    } else if (prof === '5V_BUS') {
+                      low = 4.75;
+                      crit = 4.5;
+                    }
+                    setFormData({
+                      ...formData,
+                      batteryProfile: prof,
+                      batteryLowThresholdVolts: low,
+                      batteryCriticalThresholdVolts: crit,
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                >
+                  <option value="1S_LIPO">1S LiPo (3.7V)</option>
+                  <option value="2S_LIPO">2S LiPo (7.4V)</option>
+                  <option value="5V_BUS">5V Regulated</option>
+                  <option value="CUSTOM">Custom Profile</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-slate-600 font-semibold block mb-1">Low Voltage (V):</label>
+                <input
+                  type="number"
+                  step="0.05"
+                  value={formData.batteryLowThresholdVolts ?? 3.5}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      batteryLowThresholdVolts: parseFloat(e.target.value) || 3.5,
+                    })
+                  }
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-600 font-semibold block mb-1">Critical Cutoff (V):</label>
+                <input
+                  type="number"
+                  step="0.05"
+                  value={formData.batteryCriticalThresholdVolts ?? 3.3}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      batteryCriticalThresholdVolts: parseFloat(e.target.value) || 3.3,
+                    })
+                  }
+                  className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Performance & Graph Limits */}
           <div className="grid grid-cols-2 gap-3">
             <div>

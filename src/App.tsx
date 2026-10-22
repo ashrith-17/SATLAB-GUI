@@ -10,6 +10,7 @@ import { GPSPanel } from './components/GPSPanel/GPSPanel';
 import { CommandCenter } from './components/CommandCenter/CommandCenter';
 import { RawLog } from './components/RawLog/RawLog';
 import { SettingsModal } from './components/Settings/SettingsModal';
+import { INAPowerModule } from './components/INAPowerModule/INAPowerModule';
 
 export const App: React.FC = () => {
   const {
@@ -83,15 +84,18 @@ export const App: React.FC = () => {
             <TelemetryGraphs />
           </section>
 
-          {/* RIGHT SIDE: TELEMETRY SUMMARY, 3D ORIENTATION, GPS & COMMUNICATION */}
+          {/* RIGHT SIDE: TELEMETRY SUMMARY, POWER MONITOR, 3D ORIENTATION, GPS */}
           <section className="lg:col-span-5 xl:col-span-5 flex flex-col space-y-3.5">
             {/* 1. Telemetry Summary Cards */}
             <TelemetrySummaryCards />
 
-            {/* 2. Live CanSat Orientation (3D/Attitude Model) */}
+            {/* 2. Dedicated INA219 / INA226 Electrical Power Monitoring Module */}
+            <INAPowerModule />
+
+            {/* 3. Live CanSat Orientation (3D/Attitude Model) */}
             <CanSatOrientation />
 
-            {/* 3. GPS & Communication Status */}
+            {/* 4. GPS & Flight Separation */}
             <GPSPanel />
           </section>
         </div>

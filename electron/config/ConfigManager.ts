@@ -16,6 +16,9 @@ export class ConfigManager {
     parserDelimiter: '|',
     referencePressureHpa: 1013.25,
     altitudeSource: 'ONBOARD',
+    batteryProfile: '1S_LIPO',
+    batteryLowThresholdVolts: 3.5,
+    batteryCriticalThresholdVolts: 3.3,
     customCommands: [],
   };
 

@@ -158,6 +158,38 @@ export class TelemetryParser {
       const rawRssi = data['TELEMETRY STATUS_RSSI'];
       const rssi = rawRssi ? parseInt(rawRssi, 10) : null;
 
+      // INA219 / INA226 Electrical Power Monitoring
+      const rawVolt = data['INA219_BUS VOLTAGE'] || data['INA219_VOLTAGE'] || data['INA219_V'] ||
+                      data['INA226_BUS VOLTAGE'] || data['INA226_VOLTAGE'] || data['INA226_V'] ||
+                      data['POWER_BUS VOLTAGE'] || data['POWER_VOLTAGE'] || data['POWER_V'] ||
+                      data['EPS_VOLTAGE'] || data['VOLTAGE'] || data['VBUS'];
+      const voltage = rawVolt ? parseFloat(rawVolt) : null;
+
+      const rawCurr = data['INA219_SHUNT CURRENT'] || data['INA219_CURRENT'] || data['INA219_I'] ||
+                      data['INA226_CURRENT'] || data['INA226_I'] ||
+                      data['POWER_CURRENT'] || data['POWER_I'] ||
+                      data['EPS_CURRENT'] || data['CURRENT'] || data['CURR'];
+      const current = rawCurr ? parseFloat(rawCurr) : null;
+
+      const rawPwr = data['INA219_POWER'] || data['INA219_P'] ||
+                     data['INA226_POWER'] || data['INA226_P'] ||
+                     data['POWER_POWER'] || data['POWER_P'] ||
+                     data['EPS_POWER'] || data['POWER'] || data['PWR'];
+      let power = rawPwr ? parseFloat(rawPwr) : null;
+
+      const rawShunt = data['INA219_SHUNT VOLTAGE'] || data['INA226_SHUNT VOLTAGE'] || data['SHUNT_VOLTAGE'];
+      const shuntVoltage = rawShunt ? parseFloat(rawShunt) : null;
+
+      const validVoltage = voltage !== null && !isNaN(voltage) ? voltage : null;
+      const validCurrent = current !== null && !isNaN(current) ? current : null;
+      let validPower = power !== null && !isNaN(power) ? power : null;
+      const validShunt = shuntVoltage !== null && !isNaN(shuntVoltage) ? shuntVoltage : null;
+
+      // Calculate power if not sensor-reported: P(mW) = V(V) * I(mA)
+      if (validPower === null && validVoltage !== null && validCurrent !== null) {
+        validPower = parseFloat((validVoltage * validCurrent).toFixed(1));
+      }
+
       // Flight State
       const flightState = this.determineFlightState(undefined, altitude);
 
@@ -170,6 +202,10 @@ export class TelemetryParser {
         humidity: humidity !== null && !isNaN(humidity) ? humidity : null,
         pressure,
         battery: 98.5,
+        voltage: validVoltage,
+        current: validCurrent,
+        power: validPower,
+        shuntVoltage: validShunt,
         roll,
         pitch,
         yaw,
@@ -225,14 +261,14 @@ export class TelemetryParser {
         }
 
         if (key && val) {
-          // Remove unit descriptors like "C", "hPa", "Pa", "m", "deg", "%RH", "%", "m/s", "km/h", "V", "g"
-          val = val.replace(/(%RH|%|C|hPa|Pa|m\/s|km\/h|m|deg|rad\/s|V|g)$/i, '').trim();
+          // Remove unit descriptors like "C", "hPa", "Pa", "m", "deg", "%RH", "%", "m/s", "km/h", "mA", "mW", "mV", "V", "g", "W", "A"
+          val = val.replace(/(%RH|%|C|hPa|Pa|m\/s|km\/h|rad\/s|deg|mA|mW|mV|m|V|A|W|g)$/i, '').trim();
           map.set(key, val);
         }
       }
 
       // If we didn't find at least 2 key telemetry keys, reject
-      const hasCoreKey = ['PKT', 'ALT', 'TEMP', 'HUM', 'PRESS', 'R', 'P', 'H', 'AX', 'AZ'].some((k) =>
+      const hasCoreKey = ['PKT', 'ALT', 'TEMP', 'HUM', 'PRESS', 'R', 'P', 'H', 'AX', 'AZ', 'VBUS', 'VOLT', 'CURR', 'PWR', 'INA_V', 'INA_I'].some((k) =>
         map.has(k)
       );
 
@@ -259,6 +295,34 @@ export class TelemetryParser {
       }
 
       const battery = this.parseFloatOrDefault(map.get('BATT') || map.get('BATTERY'), 100);
+
+      // INA219 / INA226 Voltage (V)
+      const rawVolt = map.get('VBUS') || map.get('VOLT') || map.get('VOLTAGE') || map.get('INA_V') ||
+                      map.get('INA219_V') || map.get('INA226_V') || map.get('BATT_V');
+      const voltage = rawVolt !== undefined ? parseFloat(rawVolt) : null;
+      const validVoltage = voltage !== null && !isNaN(voltage) ? voltage : null;
+
+      // INA219 / INA226 Current (mA)
+      const rawCurr = map.get('CURR') || map.get('CURRENT') || map.get('INA_I') || map.get('INA_CURR') ||
+                      map.get('INA219_I') || map.get('INA226_I') || map.get('SHUNT_I') || map.get('I_MA');
+      const current = rawCurr !== undefined ? parseFloat(rawCurr) : null;
+      const validCurrent = current !== null && !isNaN(current) ? current : null;
+
+      // INA219 / INA226 Power (mW)
+      const rawPwr = map.get('PWR') || map.get('POWER') || map.get('INA_P') || map.get('INA_PWR') ||
+                     map.get('INA219_P') || map.get('INA226_P') || map.get('P_MW');
+      let power = rawPwr !== undefined ? parseFloat(rawPwr) : null;
+      let validPower = power !== null && !isNaN(power) ? power : null;
+
+      // Shunt Voltage drop (mV)
+      const rawShunt = map.get('SHUNT_V') || map.get('V_SHUNT') || map.get('INA_SHUNT');
+      const shuntVoltage = rawShunt !== undefined ? parseFloat(rawShunt) : null;
+      const validShunt = shuntVoltage !== null && !isNaN(shuntVoltage) ? shuntVoltage : null;
+
+      // Calculate power if not sensor-reported: P(mW) = V(V) * I(mA)
+      if (validPower === null && validVoltage !== null && validCurrent !== null) {
+        validPower = parseFloat((validVoltage * validCurrent).toFixed(1));
+      }
 
       const roll = this.parseFloatOrDefault(map.get('R') || map.get('ROLL'), 0);
       const pitch = this.parseFloatOrDefault(map.get('P') || map.get('PITCH'), 0);
@@ -291,6 +355,10 @@ export class TelemetryParser {
         humidity: humidity !== null && !isNaN(humidity) ? humidity : null,
         pressure,
         battery,
+        voltage: validVoltage,
+        current: validCurrent,
+        power: validPower,
+        shuntVoltage: validShunt,
         roll,
         pitch,
         yaw,
@@ -368,6 +436,10 @@ export class TelemetryParser {
         humidity: null, // CSV legacy format does not contain humidity column
         pressure: finalPressure,
         battery,
+        voltage: null,
+        current: null,
+        power: null,
+        shuntVoltage: null,
         roll,
         pitch,
         yaw,

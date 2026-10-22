@@ -140,16 +140,24 @@ export class OfflineGps {
   }
 
   /**
-   * Formats distance according to user specifications:
+   * Formats distance with metres (m) as the primary unit:
    * - Below 1 km: displayed in meters (e.g. "450 m")
-   * - At or above 1 km: displayed in km with two decimal places (e.g. "2.03 km")
+   * - At or above 1 km: displayed in meters with km equivalent (e.g. "1,250 m (1.25 km)")
    */
   public static formatDistance(meters: number | null): string {
-    if (meters === null || isNaN(meters)) return '--';
+    if (meters === null || isNaN(meters)) return '--- m';
     if (meters < 1000) {
       return `${Math.round(meters)} m`;
     }
-    return `${(meters / 1000).toFixed(2)} km`;
+    return `${Math.round(meters).toLocaleString()} m (${(meters / 1000).toFixed(2)} km)`;
+  }
+
+  /**
+   * Formats distance strictly in metres
+   */
+  public static formatMetresOnly(meters: number | null): string {
+    if (meters === null || isNaN(meters)) return '--- m';
+    return `${Math.round(meters).toLocaleString()} m`;
   }
 
   /**

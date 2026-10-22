@@ -1,4 +1,6 @@
 export type FlightState = 'PRE-LAUNCH' | 'ASCENT' | 'DESCENT' | 'LANDED' | 'UNKNOWN';
+export type SensorStatus = 'LIVE' | 'DISCONNECTED' | 'NO DATA';
+export type BatteryHealthStatus = 'NORMAL' | 'LOW' | 'CRITICAL' | 'UNKNOWN';
 
 export interface TelemetryData {
   packetNumber: number;
@@ -8,7 +10,12 @@ export interface TelemetryData {
   temperature: number; // BME280 Temperature (°C)
   humidity: number | null; // BME280 Relative Humidity (% RH)
   pressure: number; // DPS310 Atmospheric Pressure (hPa)
-  battery: number;
+  battery: number; // Battery level percentage (%)
+  // INA219 / INA226 Power Monitor Telemetry
+  voltage: number | null; // Bus voltage (V)
+  current: number | null; // Shunt load current (mA)
+  power: number | null; // Electrical power consumption (mW)
+  shuntVoltage: number | null; // Shunt voltage drop (mV)
   roll: number;
   pitch: number;
   yaw: number;
@@ -102,5 +109,8 @@ export interface GroundStationConfig {
   parserDelimiter: string;
   referencePressureHpa: number; // Reference sea-level/ground pressure P0 in hPa (default: 1013.25)
   altitudeSource: 'ONBOARD' | 'DPS310_CALCULATED'; // Active altitude source for primary display
+  batteryProfile: '1S_LIPO' | '2S_LIPO' | '5V_BUS' | 'CUSTOM';
+  batteryLowThresholdVolts: number;
+  batteryCriticalThresholdVolts: number;
   customCommands: CommandItem[];
 }

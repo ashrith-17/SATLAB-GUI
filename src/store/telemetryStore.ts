@@ -8,6 +8,8 @@ import {
   TelemetryData,
 } from '../types/telemetry';
 import { OfflineGps } from '../utils/gps';
+import { OfflineAltitude } from '../utils/altitude';
+import { AltitudeSample } from '../utils/flightSeparation';
 
 export interface LastValidGps {
   latitude: number;
@@ -18,12 +20,12 @@ export interface LastValidGps {
   timestampMs: number;
 }
 
-export interface RangeTestSession {
-  isActive: boolean;
-  isPaused: boolean;
-  currentDistanceMeters: number | null;
-  maxDistanceMeters: number | null;
-  sessionStartTime: number | null;
+export interface LastValidIna {
+  voltage: number | null;
+  current: number | null;
+  power: number | null;
+  shuntVoltage: number | null;
+  timestampMs: number;
 }
 
 interface TelemetryState {
@@ -40,9 +42,17 @@ interface TelemetryState {
   commandLogs: CommandLog[];
   predefinedCommands: CommandItem[];
 
-  // GPS & Range Test
+  // GPS & Live Distance
   lastValidGps: LastValidGps | null;
-  rangeTest: RangeTestSession;
+  liveDistanceMeters: number | null;
+
+  // INA Power Monitoring
+  lastValidIna: LastValidIna | null;
+
+  // Flight Ascent / Descent Metrics
+  launchAltitudeMeters: number | null;
+  maxAltitudeMeters: number | null;
+  recentAltitudes: AltitudeSample[];
 
   // Graph & UI Toggles
   isGraphPaused: boolean;
@@ -54,6 +64,11 @@ interface TelemetryState {
   setConfig: (config: GroundStationConfig) => void;
   setReferencePressure: (p0: number) => void;
   setAltitudeSource: (source: 'ONBOARD' | 'DPS310_CALCULATED') => void;
+  setBatteryProfile: (
+    profile: '1S_LIPO' | '2S_LIPO' | '5V_BUS' | 'CUSTOM',
+    lowV?: number,
+    critV?: number
+  ) => void;
   setPredefinedCommands: (cmds: CommandItem[]) => void;
   addTelemetry: (data: TelemetryData) => void;
   addRawLine: (line: string) => void;
@@ -65,11 +80,10 @@ interface TelemetryState {
   clearHistory: () => void;
   clearRawLog: () => void;
 
-  // Range Test Actions
-  startRangeTest: () => void;
-  pauseRangeTest: () => void;
-  resumeRangeTest: () => void;
-  resetRangeTest: () => void;
+  // Flight & Launch Calibration Actions
+  setLaunchAltitude: (alt: number | null) => void;
+  calibrateLaunchReference: () => void;
+  resetFlightMetrics: () => void;
 }
 
 export const useTelemetryStore = create<TelemetryState>((set, get) => ({
@@ -100,6 +114,9 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     parserDelimiter: '|',
     referencePressureHpa: 1013.25,
     altitudeSource: 'ONBOARD',
+    batteryProfile: '1S_LIPO',
+    batteryLowThresholdVolts: 3.5,
+    batteryCriticalThresholdVolts: 3.3,
     customCommands: [],
   },
 
@@ -111,13 +128,13 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   predefinedCommands: [],
 
   lastValidGps: null,
-  rangeTest: {
-    isActive: false,
-    isPaused: false,
-    currentDistanceMeters: null,
-    maxDistanceMeters: null,
-    sessionStartTime: null,
-  },
+  liveDistanceMeters: null,
+
+  lastValidIna: null,
+
+  launchAltitudeMeters: null,
+  maxAltitudeMeters: null,
+  recentAltitudes: [],
 
   isGraphPaused: false,
   isRawLogPaused: false,
@@ -126,8 +143,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   setAvailablePorts: (ports) => set({ availablePorts: ports }),
   setConfig: (config) => {
     set((state) => {
-      // Re-evaluate distance if GS coordinates changed and we have valid GPS
-      let currentDist = state.rangeTest.currentDistanceMeters;
+      let currentDist = state.liveDistanceMeters;
       if (
         state.lastValidGps &&
         OfflineGps.isValidCoordinate(config.gsLatitude, config.gsLongitude)
@@ -141,10 +157,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
       }
       return {
         config,
-        rangeTest: {
-          ...state.rangeTest,
-          currentDistanceMeters: currentDist,
-        },
+        liveDistanceMeters: currentDist,
       };
     });
   },
@@ -156,6 +169,34 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
     set((state) => ({
       config: { ...state.config, altitudeSource: source },
     })),
+  setBatteryProfile: (profile, lowV, critV) =>
+    set((state) => {
+      let defLow = lowV;
+      let defCrit = critV;
+      if (defLow === undefined || defCrit === undefined) {
+        if (profile === '1S_LIPO') {
+          defLow = 3.5;
+          defCrit = 3.3;
+        } else if (profile === '2S_LIPO') {
+          defLow = 7.0;
+          defCrit = 6.6;
+        } else if (profile === '5V_BUS') {
+          defLow = 4.75;
+          defCrit = 4.5;
+        } else {
+          defLow = state.config.batteryLowThresholdVolts || 3.5;
+          defCrit = state.config.batteryCriticalThresholdVolts || 3.3;
+        }
+      }
+      return {
+        config: {
+          ...state.config,
+          batteryProfile: profile,
+          batteryLowThresholdVolts: defLow,
+          batteryCriticalThresholdVolts: defCrit,
+        },
+      };
+    }),
   setPredefinedCommands: (cmds) => set({ predefinedCommands: cmds }),
 
   addTelemetry: (data) => {
@@ -171,7 +212,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
 
       // Check for valid GPS coordinates
       let newLastValidGps = state.lastValidGps;
-      let newRangeTest = { ...state.rangeTest };
+      let newLiveDist = state.liveDistanceMeters;
 
       if (OfflineGps.isValidCoordinate(data.latitude, data.longitude)) {
         newLastValidGps = {
@@ -183,7 +224,7 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
           timestampMs: Date.now(),
         };
 
-        // Calculate distance if GS coordinates are valid
+        // Calculate horizontal ground distance if GS coordinates are valid
         if (OfflineGps.isValidCoordinate(state.config.gsLatitude, state.config.gsLongitude)) {
           const dist = OfflineGps.calculateDistance(
             state.config.gsLatitude,
@@ -191,23 +232,71 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
             data.latitude!,
             data.longitude!
           );
-
           if (dist !== null) {
-            newRangeTest.currentDistanceMeters = dist;
-            // Update peak distance during active non-paused test
-            if (newRangeTest.isActive && !newRangeTest.isPaused) {
-              const prevMax = newRangeTest.maxDistanceMeters ?? dist;
-              newRangeTest.maxDistanceMeters = Math.max(prevMax, dist);
-            }
+            newLiveDist = dist;
           }
         }
+      }
+
+      // Evaluate active altitude for ascent/descent tracking
+      const altAssessment = OfflineAltitude.evaluateAltitude(
+        data.altitude,
+        data.pressure,
+        state.config.referencePressureHpa || 1013.25,
+        state.config.altitudeSource || 'ONBOARD'
+      );
+      const currentAlt = altAssessment.estimatedAltitudeMeters;
+
+      let newMaxAlt = state.maxAltitudeMeters;
+      let newLaunchAlt = state.launchAltitudeMeters;
+      let newRecentAlts = [...state.recentAltitudes];
+
+      if (currentAlt !== null && !isNaN(currentAlt) && isFinite(currentAlt)) {
+        // Track flight peak (Apogee)
+        if (newMaxAlt === null || currentAlt > newMaxAlt) {
+          newMaxAlt = currentAlt;
+        }
+
+        // Initialize launch altitude reference if not set yet or still in PRE-LAUNCH
+        if (
+          newLaunchAlt === null ||
+          (data.flightState === 'PRE-LAUNCH' && state.telemetryHistory.length < 5)
+        ) {
+          newLaunchAlt = currentAlt;
+        }
+
+        // Maintain sliding window for vertical motion consecutive packet analysis
+        const now = Date.now();
+        newRecentAlts.push({ altitude: currentAlt, timestampMs: now });
+        // Keep samples from the last 5 seconds, max 12 samples
+        newRecentAlts = newRecentAlts.filter((s) => now - s.timestampMs <= 5000).slice(-12);
+      }
+
+      // Track last valid INA power sensor measurements
+      let newLastValidIna = state.lastValidIna;
+      if (
+        (data.voltage !== null && !isNaN(data.voltage)) ||
+        (data.current !== null && !isNaN(data.current)) ||
+        (data.power !== null && !isNaN(data.power))
+      ) {
+        newLastValidIna = {
+          voltage: data.voltage,
+          current: data.current,
+          power: data.power,
+          shuntVoltage: data.shuntVoltage,
+          timestampMs: Date.now(),
+        };
       }
 
       return {
         latestTelemetry: data,
         telemetryHistory: history,
         lastValidGps: newLastValidGps,
-        rangeTest: newRangeTest,
+        liveDistanceMeters: newLiveDist,
+        lastValidIna: newLastValidIna,
+        maxAltitudeMeters: newMaxAlt,
+        launchAltitudeMeters: newLaunchAlt,
+        recentAltitudes: newRecentAlts,
       };
     });
   },
@@ -248,77 +337,35 @@ export const useTelemetryStore = create<TelemetryState>((set, get) => ({
   toggleGraphPause: () => set((state) => ({ isGraphPaused: !state.isGraphPaused })),
   toggleRawLogPause: () => set((state) => ({ isRawLogPaused: !state.isRawLogPaused })),
 
-  clearHistory: () => set({ telemetryHistory: [] }),
+  clearHistory: () =>
+    set({
+      telemetryHistory: [],
+      maxAltitudeMeters: null,
+      recentAltitudes: [],
+    }),
   clearRawLog: () => set({ rawLogLines: [] }),
 
-  startRangeTest: () => {
-    set((state) => {
-      let currentDist = state.rangeTest.currentDistanceMeters;
-      if (
-        currentDist === null &&
-        state.lastValidGps &&
-        OfflineGps.isValidCoordinate(state.config.gsLatitude, state.config.gsLongitude)
-      ) {
-        currentDist = OfflineGps.calculateDistance(
-          state.config.gsLatitude,
-          state.config.gsLongitude,
-          state.lastValidGps.latitude,
-          state.lastValidGps.longitude
-        );
-      }
-      return {
-        rangeTest: {
-          isActive: true,
-          isPaused: false,
-          currentDistanceMeters: currentDist,
-          maxDistanceMeters: currentDist,
-          sessionStartTime: Date.now(),
-        },
-      };
-    });
+  setLaunchAltitude: (alt) => set({ launchAltitudeMeters: alt }),
+
+  calibrateLaunchReference: () => {
+    const { latestTelemetry, config } = get();
+    if (!latestTelemetry) return;
+    const altEval = OfflineAltitude.evaluateAltitude(
+      latestTelemetry.altitude,
+      latestTelemetry.pressure,
+      config.referencePressureHpa || 1013.25,
+      config.altitudeSource || 'ONBOARD'
+    );
+    if (altEval.estimatedAltitudeMeters !== null) {
+      set({ launchAltitudeMeters: altEval.estimatedAltitudeMeters });
+    }
   },
 
-  pauseRangeTest: () => {
-    set((state) => ({
-      rangeTest: {
-        ...state.rangeTest,
-        isPaused: true,
-      },
-    }));
-  },
-
-  resumeRangeTest: () => {
-    set((state) => ({
-      rangeTest: {
-        ...state.rangeTest,
-        isPaused: false,
-      },
-    }));
-  },
-
-  resetRangeTest: () => {
-    set((state) => {
-      let currentDist: number | null = null;
-      if (
-        state.lastValidGps &&
-        OfflineGps.isValidCoordinate(state.config.gsLatitude, state.config.gsLongitude)
-      ) {
-        currentDist = OfflineGps.calculateDistance(
-          state.config.gsLatitude,
-          state.config.gsLongitude,
-          state.lastValidGps.latitude,
-          state.lastValidGps.longitude
-        );
-      }
-      return {
-        rangeTest: {
-          isActive: false,
-          isPaused: false,
-          currentDistanceMeters: currentDist,
-          maxDistanceMeters: null,
-          sessionStartTime: null,
-        },
-      };
+  resetFlightMetrics: () => {
+    set({
+      maxAltitudeMeters: null,
+      launchAltitudeMeters: null,
+      recentAltitudes: [],
     });
   },
 }));
